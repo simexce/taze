@@ -1,5 +1,5 @@
 <h1 align="center">🥦 Taze</h1>
-<p align="center"><sup>(/ta:zei/, <em>fresh</em> in Turkish)</sup></p>
+<p align="center"><sup>(/ta:zei/, <em>fresh</em> in Persian)</sup></p>
 <p align="center">A modern cli tool that keeps your deps fresh</p>
 
 <pre align="center">npx <b>taze</b></pre>
@@ -37,7 +37,6 @@ Check for <b>major</b> updates
 <img src='./screenshots/major.png' width='600'/>
 </p>
 
-
 <p align='center'>
 Check up to <b>minor</b> updates
 <br>
@@ -49,7 +48,6 @@ Check up to <b>patch</b> updates
 <br>
 <img src='./screenshots/patch.png' width='600'/>
 </p>
-
 
 ### Monorepo
 
@@ -100,6 +98,10 @@ export default defineConfig({
     'unocss': 'ignore',
     // regex starts and ends with '/'
     '/vue/': 'latest'
+  },
+  // disable checking for "overrides" package.json field
+  depFields: {
+    overrides: false
   }
 })
 ```

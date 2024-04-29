@@ -1,16 +1,18 @@
-import type { Packument } from 'pacote'
-import type semver from 'semver'
 import type { SortOption } from './utils/sort'
 
 export type RangeMode = 'default' | 'major' | 'minor' | 'patch' | 'latest' | 'newest'
 export type PackageMode = Omit<RangeMode, 'default'> | 'ignore'
-export type DepType = 'dependencies' | 'devDependencies' | 'peerDependencies' | 'optionalDependencies' | 'packageManager'
+export type DepType = 'dependencies' | 'devDependencies' | 'peerDependencies' | 'optionalDependencies' | 'packageManager' | 'pnpm.overrides' | 'resolutions' | 'overrides'
+
 export const DependenciesTypeShortMap = {
-  dependencies: '',
-  devDependencies: 'dev',
-  peerDependencies: 'peer',
-  optionalDependencies: 'optional',
-  packageManager: 'package-manager',
+  'dependencies': '',
+  'devDependencies': 'dev',
+  'peerDependencies': 'peer',
+  'optionalDependencies': 'optional',
+  'packageManager': 'package-manager',
+  'pnpm.overrides': 'pnpm-overrides',
+  'resolutions': 'resolutions',
+  'overrides': 'overrides',
 }
 
 export interface RawDep {
@@ -18,9 +20,34 @@ export interface RawDep {
   currentVersion: string
   source: DepType
   update: boolean
+  parents?: string[]
 }
 
-export type DiffType = ReturnType<typeof semver['diff']> | 'error'
+export type DiffType = 'major' | 'minor' | 'patch' | 'error' | null
+
+// @types/pacote uses "import = require()" syntax which is not supported by unbuild
+// So instead of using @types/pacote, we declare the type definition with only fields we need
+export interface Packument {
+  'name': string
+  /**
+   * An object where each key is a version, and each value is the manifest for
+   * that version.
+   */
+  'versions': Record<string, Omit<Packument, 'versions'>>
+  /**
+   * An object mapping dist-tags to version numbers. This is how `foo@latest`
+   * gets turned into `foo@1.2.3`.
+   */
+  'dist-tags': { latest: string } & Record<string, string>
+  /**
+   * In the full packument, an object mapping version numbers to publication
+   * times, for the `opts.before` functionality.
+   */
+  'time': Record<string, string> & {
+    created: string
+    modified: string
+  }
+}
 
 export interface PackageData {
   tags: Record<string, string>
@@ -42,30 +69,43 @@ export interface ResolvedDepChange extends RawDep {
   aliasName?: string
 }
 
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent'
+
 export interface CommonOptions {
-  cwd: string
+  cwd?: string
   recursive?: boolean
   ignorePaths?: string | string[]
   include?: string | string[]
   exclude?: string | string[]
-  prod?: boolean
-  dev?: boolean
-  loglevel?: string
+  loglevel?: LogLevel
   failOnOutdated?: boolean
   silent?: boolean
+  /**
+   * Fields in package.json to be checked
+   * By default all fields will be checked
+   */
+  depFields?: DepFieldOptions
+  /**
+   * Bypass cache
+   */
   force?: boolean
+  /**
+   * Override bumping mode for specific dependencies
+   */
   packageMode?: { [name: string]: PackageMode }
 }
 
 export interface UsageOptions extends CommonOptions {
-  detail: boolean
-  recursive: true
+  detail?: boolean
+  recursive?: true
 }
 
+export type DepFieldOptions = Partial<Record<DepType, boolean>>
+
 export interface CheckOptions extends CommonOptions {
-  mode: string
-  write: boolean
-  all: boolean
+  mode?: RangeMode
+  write?: boolean
+  all?: boolean
   sort?: SortOption
   interactive?: boolean
   install?: boolean
@@ -115,5 +155,5 @@ export type DependencyFilter = (dep: RawDep) => boolean | Promise<boolean>
 export type DependencyResolvedCallback = (packageName: string | null, depName: string, progress: number, total: number) => void
 
 export interface InteractiveContext {
-  isSelected(dep: RawDep): boolean
+  isSelected: (dep: RawDep) => boolean
 }

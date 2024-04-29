@@ -7,11 +7,16 @@ import { createControlledPromise, notNullish } from '@antfu/utils'
 import type { CheckOptions, InteractiveContext, PackageMeta, ResolvedDepChange } from '../../types'
 import { getVersionOfRange, updateTargetVersion } from '../../io/resolves'
 import { getPrefixedVersion } from '../../utils/versions'
-import { FIG_BLOCK, FIG_NO_POINTER, FIG_POINTER, colorizeVersionDiff, formatTable } from '../../render'
+import { FIG_BLOCK, FIG_NO_POINTER, FIG_POINTER, colorizeVersionDiff, createSliceRender, formatTable } from '../../render'
 import { timeDifference } from '../../utils/time'
+import { sortDepChanges } from '../../utils/sort'
 import { renderChanges } from './render'
 
 export async function promptInteractive(pkgs: PackageMeta[], options: CheckOptions) {
+  const {
+    sort = 'diff-asc',
+  } = options
+
   pkgs.forEach((i) => {
     i.interactiveChecked = true
     i.resolved.forEach((i) => {
@@ -22,6 +27,7 @@ export async function promptInteractive(pkgs: PackageMeta[], options: CheckOptio
         updateTargetVersion(i, i.latestVersionAvailable, undefined, options.includeLocked)
       }
     })
+    i.resolved = sortDepChanges(i.resolved, sort)
   })
 
   if (!pkgs.some(i => i.resolved.some(i => i.update)))
@@ -56,21 +62,22 @@ export async function promptInteractive(pkgs: PackageMeta[], options: CheckOptio
 
     return {
       render() {
+        const sr = createSliceRender()
         const Y = (v: string) => c.bold(c.green(v))
         console.clear()
-        console.log(`${FIG_BLOCK} ${c.gray(`${Y('↑↓')} to select, ${Y('space')} to toggle, ${Y('→')} to change version`)}`)
-        console.log(`${FIG_BLOCK} ${c.gray(`${Y('enter')} to confirm, ${Y('esc')} to cancel`)}`)
-        console.log()
-
-        const lines: string[] = []
+        sr.push({ content: `${FIG_BLOCK} ${c.gray(`${Y('↑↓')} to select, ${Y('space')} to toggle, ${Y('→')} to change version`)}`, fixed: true })
+        sr.push({ content: `${FIG_BLOCK} ${c.gray(`${Y('enter')} to confirm, ${Y('esc')} to cancel, ${Y('a')} to select/unselect all`)}`, fixed: true })
+        sr.push({ content: '', fixed: true })
 
         pkgs.forEach((pkg) => {
-          lines.push(...renderChanges(pkg, options, ctx).lines)
+          sr.push(...renderChanges(pkg, options, ctx).lines.map(x => ({ content: x })))
         })
 
-        console.log(lines.join('\n'))
+        sr.render(index)
       },
       onKey(key) {
+        const allInteractiveChecked = deps.every(d => d.interactiveChecked)
+
         switch (key.name) {
           case 'escape':
             process.exit()
@@ -98,6 +105,9 @@ export async function promptInteractive(pkgs: PackageMeta[], options: CheckOptio
           case 'right':
           case 'l':
             renderer = createVersionSelectRender(deps[index])
+            return true
+          case 'a':
+            deps.forEach(d => d.interactiveChecked = !allInteractiveChecked)
             return true
         }
       },
@@ -200,6 +210,6 @@ interface TerminalKey {
 }
 
 interface InteractiveRenderer {
-  render(): void
-  onKey(key: TerminalKey): boolean | InteractiveRenderer | void
+  render: () => void
+  onKey: (key: TerminalKey) => boolean | InteractiveRenderer | void
 }

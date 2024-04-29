@@ -1,7 +1,9 @@
 import process from 'node:process'
 import { expect, it } from 'vitest'
+import { SemVer } from 'semver'
 import type { CheckOptions, DependencyFilter, RawDep } from '../src'
 import { resolveDependency } from '../src'
+import { getDiff } from '../src/io/resolves'
 
 const filter: DependencyFilter = () => true
 
@@ -20,6 +22,26 @@ function makeLocalPkg(ver: string): RawDep {
     name: 'xyg-mdb',
     currentVersion: ver,
     source: 'dependencies',
+    update: true,
+  }
+  return pkg
+}
+
+function makePkgForResolutions(name: string, ver: string): RawDep {
+  const pkg: RawDep = {
+    name,
+    currentVersion: ver,
+    source: 'resolutions',
+    update: true,
+  }
+  return pkg
+}
+
+function makePkgForPnpmOverrides(name: string, ver: string): RawDep {
+  const pkg: RawDep = {
+    name,
+    currentVersion: ver,
+    source: 'pnpm.overrides',
     update: true,
   }
   return pkg
@@ -102,4 +124,43 @@ it('resolveDependency', async () => {
   expect(false).toBe((await resolveDependency(makeLocalPkg('workspace:*'), options, filter)).update)
   const target = await resolveDependency(makeLocalPkg('1.0.0'), options, filter)
   expect(target.resolveError).not.toBeNull()
+
+  // yarn resolutions
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('typescript', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('typescript@5.0.0', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('typescript', 'npm:typescript@^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('foo/typescript', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('foo/**/typescript', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('**/typescript', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('@foo/bar/typescript', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForResolutions('@foo/bar/typescript@5.1.0', '^4.0.0'), options, filter)).update)
+
+  // pnpm overrides
+  expect(true).toBe((await resolveDependency(makePkgForPnpmOverrides('typescript', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForPnpmOverrides('typescript', 'npm:typescript@^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForPnpmOverrides('typescript@5.0.0', '^4.0.0'), options, filter)).update)
+  expect(true).toBe((await resolveDependency(makePkgForPnpmOverrides('foo@1>typescript', '^4.0.0'), options, filter)).update)
 }, 10000)
+
+it('getDiff', () => {
+  // normal
+  expect(getDiff(new SemVer('1.2.3'), new SemVer('1.2.3'))).toBe(null)
+  expect(getDiff(new SemVer('1.2.3'), new SemVer('1.2.4'))).toBe('patch')
+  expect(getDiff(new SemVer('1.2.3'), new SemVer('1.3.3'))).toBe('minor')
+  expect(getDiff(new SemVer('1.2.3'), new SemVer('2.2.3'))).toBe('major')
+
+  // 0.x
+  expect(getDiff(new SemVer('0.1.2'), new SemVer('0.1.3'))).toBe('patch')
+  expect(getDiff(new SemVer('0.1.2'), new SemVer('0.2.2'))).toBe('major')
+  expect(getDiff(new SemVer('0.0.3'), new SemVer('0.0.4'))).toBe('major')
+
+  // pre
+  expect(getDiff(new SemVer('1.2.3-a'), new SemVer('1.2.3'))).toBe('patch')
+  expect(getDiff(new SemVer('1.2.3-a'), new SemVer('1.2.4'))).toBe('patch')
+  expect(getDiff(new SemVer('1.2.2'), new SemVer('1.2.3-a'))).toBe('patch')
+  expect(getDiff(new SemVer('1.2.3-a'), new SemVer('1.2.3-b'))).toBe('patch')
+  expect(getDiff(new SemVer('1.2.3-a'), new SemVer('1.2.4-b'))).toBe('patch')
+  expect(getDiff(new SemVer('1.2.3-a'), new SemVer('1.3.3-a'))).toBe('minor')
+  expect(getDiff(new SemVer('1.2.3-a'), new SemVer('2.2.3-a'))).toBe('major')
+  expect(getDiff(new SemVer('2.0.0-a'), new SemVer('2.0.0'))).toBe('patch')
+})

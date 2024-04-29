@@ -2,6 +2,7 @@ import c from 'picocolors'
 import semver from 'semver'
 import type {
   CheckOptions,
+  DiffType,
   InteractiveContext,
   PackageMeta,
   ResolvedDepChange,
@@ -10,6 +11,7 @@ import { DependenciesTypeShortMap } from '../../types'
 import { sortDepChanges } from '../../utils/sort'
 import { timeDifference } from '../../utils/time'
 import { FIG_CHECK, FIG_NO_POINTER, FIG_POINTER, FIG_UNCHECK, colorizeVersionDiff, formatTable } from '../../render'
+import { DiffColorMap } from '../../utils/diff'
 
 export function renderChange(change: ResolvedDepChange, interactive?: InteractiveContext) {
   const update = change.update && (!interactive || change.interactiveChecked)
@@ -71,9 +73,12 @@ export function renderChanges(
           diffCounts[diff] = 0
         diffCounts[diff] += 1
       })
+
+    changes = sortDepChanges(changes, sort)
+
     const diffEntries = Object.keys(diffCounts).length
       ? Object.entries(diffCounts)
-        .map(([key, value]) => `${c.yellow(value)} ${key}`)
+        .map(([key, value]) => `${c[DiffColorMap[key as DiffType || 'patch']](value)} ${key}`)
         .join(', ')
       : c.dim('no change')
 
@@ -82,8 +87,6 @@ export function renderChanges(
       `${c.cyan(pkg.name ?? '›')} ${c.dim('-')} ${diffEntries}`,
       '',
     )
-
-    changes = sortDepChanges(changes, sort)
 
     lines.push(...formatTable(
       changes.map(c => renderChange(c, interactive)),

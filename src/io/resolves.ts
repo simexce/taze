@@ -1,21 +1,22 @@
 import { existsSync, promises as fs, lstatSync } from 'node:fs'
 import { resolve } from 'node:path'
 import os from 'node:os'
-import pacote from 'pacote'
 import semver from 'semver'
 import _debug from 'debug'
 import { getNpmConfig } from '../utils/npm'
-import type { CheckOptions, DependencyFilter, DependencyResolvedCallback, PackageData, PackageMeta, RangeMode, RawDep, ResolvedDepChange } from '../types'
+import type { CheckOptions, DependencyFilter, DependencyResolvedCallback, DiffType, PackageData, PackageMeta, RangeMode, RawDep, ResolvedDepChange } from '../types'
 import { diffSorter } from '../filters/diff-sorter'
 import { getMaxSatisfying, getPrefixedVersion } from '../utils/versions'
 import { getPackageMode } from '../utils/config'
+import { parsePnpmPackagePath, parseYarnPackagePath } from '../utils/package'
+import { fetchPackumentWithFullMetaData } from '../utils/packument'
 
 const debug = {
   cache: _debug('taze:cache'),
   resolve: _debug('taze:resolve'),
 }
 
-let cache: Record<string, { cacheTime: number; data: PackageData }> = {}
+let cache: Record<string, { cacheTime: number, data: PackageData }> = {}
 let cacheChanged = false
 
 const cacheDir = resolve(os.tmpdir(), 'taze')
@@ -68,7 +69,7 @@ export async function getPackageData(name: string): Promise<PackageData> {
   try {
     debug.resolve(`resolving ${name}`)
     const npmConfig = await getNpmConfig()
-    const data = await pacote.packument(name, { ...npmConfig, fullMetadata: true })
+    const data = await fetchPackumentWithFullMetaData(name, npmConfig)
 
     if (data) {
       const result = {
@@ -136,7 +137,7 @@ export function updateTargetVersion(
     const target = semver.minVersion(dep.targetVersion)!
 
     dep.currentVersionTime = dep.pkgData.time?.[current.toString()]
-    dep.diff = semver.diff(current, target)
+    dep.diff = getDiff(current, target)
     dep.update = dep.diff !== null && semver.lt(current, target)
   }
   catch (e) {
@@ -146,6 +147,30 @@ export function updateTargetVersion(
     dep.diff = 'error'
     dep.update = false
   }
+}
+
+export function getDiff(current: semver.SemVer, target: semver.SemVer): DiffType {
+  if (semver.eq(current, target))
+    return null
+
+  const tilde = semver.satisfies(target, `~${current}`, { includePrerelease: true })
+  const caret = semver.satisfies(target, `^${current}`, { includePrerelease: true })
+  const gte = semver.satisfies(target, `>=${current}`, { includePrerelease: true })
+
+  if (tilde) {
+    if (caret)
+      return 'patch'
+    else
+      return 'major'
+  }
+  else if (caret) {
+    return 'minor'
+  }
+  else if (gte) {
+    return 'major'
+  }
+
+  return 'error'
 }
 
 export async function resolveDependency(
@@ -183,7 +208,20 @@ export async function resolveDependency(
     }
   }
 
-  const pkgData = await getPackageData(dep.name)
+  let resolvedName = dep.name
+
+  // manage Yarn resolutions (e.g. "foo@1/bar")
+  if (dep.source === 'resolutions') {
+    const packages = parseYarnPackagePath(dep.name)
+    resolvedName = packages.pop() ?? dep.name
+  }
+  // manage pnpm overrides (e.g. "foo@1>bar")
+  else if (dep.source === 'pnpm.overrides') {
+    const packages = parsePnpmPackagePath(dep.name)
+    resolvedName = packages.pop() ?? dep.name
+  }
+
+  const pkgData = await getPackageData(resolvedName)
   const { tags, error } = pkgData
   dep.pkgData = pkgData
   let err: Error | string | null = null

@@ -1,4 +1,9 @@
+/* eslint-disable no-console */
+import process from 'node:process'
 import c from 'picocolors'
+import { SemVer } from 'semver'
+import { getDiff } from './io/resolves'
+import { DiffColorMap } from './utils/diff'
 
 export const FIG_CHECK = c.green('◉')
 export const FIG_UNCHECK = c.gray('◌')
@@ -92,14 +97,13 @@ export function colorizeVersionDiff(from: string, to: string, hightlightRange = 
   let i = partsToColor.findIndex((part, i) => part !== partsToCompare[i])
   i = i >= 0 ? i : partsToColor.length
 
-  // major = red (or any change before 1.0.0)
-  // minor = cyan
-  // patch = green
-  const color = (i === 0 || partsToColor[0] === '0')
-    ? 'red'
-    : i === 1
-      ? 'cyan'
-      : 'green'
+  let diffType = null
+  try {
+    diffType = getDiff(new SemVer(from), new SemVer(to))
+  }
+  catch (error) {
+  }
+  const color = DiffColorMap[diffType || 'patch']
 
   // if we are colorizing only part of the word, add a dot in the middle
   const middot = (i > 0 && i < partsToColor.length) ? '.' : ''
@@ -109,7 +113,81 @@ export function colorizeVersionDiff(from: string, to: string, hightlightRange = 
     : 'yellow'
 
   return c[leadingColor](leadingWildcard)
-        + partsToColor.slice(0, i).join('.')
-        + middot
-        + c[color](partsToColor.slice(i).join('.')).trim()
+    + partsToColor.slice(0, i).join('.')
+    + middot
+    + c[color](partsToColor.slice(i).join('.')).trim()
+}
+
+interface SliceRenderLine {
+  content: string
+  fixed?: boolean
+}
+
+export function createSliceRender() {
+  const buffer: SliceRenderLine[] = []
+
+  return {
+    push(...lines: SliceRenderLine[]) {
+      buffer.push(...lines)
+    },
+    render(selectedDepIndex: number) {
+      let {
+        rows: remainHeight,
+        columns: availableWidth,
+      } = process.stdout
+
+      const lines: SliceRenderLine[] = buffer.length < remainHeight - 1
+        ? buffer
+        : [...buffer, { content: c.yellow('  -- END --') }]
+
+      // spare space for cursor
+      remainHeight -= 1
+      let i = 0
+      while (i < lines.length) {
+        const curr = lines[i]
+        if (curr.fixed) {
+          console.log(curr.content)
+          remainHeight -= 1
+          i++
+        }
+        else {
+          break
+        }
+      }
+
+      const remainLines = lines.slice(i)
+
+      // calculate focused line index from selected dep index
+      let focusedLineIndex = 0
+      let depIndex = 0
+      for (const line of remainLines) {
+        if (line.content.includes(FIG_CHECK) || line.content.includes(FIG_UNCHECK))
+          depIndex += 1
+
+        if (depIndex === selectedDepIndex)
+          break
+        else
+          focusedLineIndex += 1
+      }
+
+      let slice: SliceRenderLine[]
+      if (
+        remainHeight < 1
+        || remainLines.length === 0
+        || remainLines.length <= remainHeight
+        || lines.some(x => Math.ceil(visualLength(x.content) / availableWidth) > 1)
+      ) {
+        slice = remainLines
+      }
+      else {
+        const half = Math.floor((remainHeight - 1) / 2)
+        const f = focusedLineIndex - half
+        const b = focusedLineIndex + remainHeight - half - remainLines.length
+        const start = Math.max(0, b <= 0 ? f : f - b)
+        slice = remainLines.slice(start, start + remainHeight)
+      }
+
+      console.log(slice.map(x => x.content).join('\n'))
+    },
+  }
 }
